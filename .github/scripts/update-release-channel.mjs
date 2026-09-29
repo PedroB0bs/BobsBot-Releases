@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createPublicKey, verify } from 'node:crypto';
+import { createHash, createPublicKey, verify } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 
 const repo = process.env.GITHUB_REPOSITORY || 'PedroB0bs/BobsBot-Releases';
@@ -36,6 +36,15 @@ export function validateReleaseManifest(release, manifest) {
       manifest.size < 10000 || manifest.size > 800 * 1024 * 1024) {
     throw new Error(`release ${release.tag_name} has an invalid signed manifest`);
   }
+  const assets = new Map((release.assets || []).map(asset => [asset.name, asset]));
+  for (const name of ['manifest.json', 'manifest.sig', manifest.package, 'BobsBotNetworkSetup.exe']) {
+    if (!assets.has(name)) throw new Error(`release ${release.tag_name} is missing ${name}`);
+  }
+  const packageAsset = assets.get(manifest.package);
+  if (packageAsset.size !== manifest.size ||
+      (packageAsset.digest && packageAsset.digest !== `sha256:${manifest.sha256}`)) {
+    throw new Error(`release ${release.tag_name} has an incomplete or mismatched package`);
+  }
   return manifest;
 }
 
@@ -57,6 +66,23 @@ async function assetBytes(asset) {
   const response = await fetch(asset.browser_download_url, { signal: AbortSignal.timeout(30_000), cache: 'no-store' });
   if (!response.ok) throw new Error(`release asset download failed (${response.status})`);
   return Buffer.from(await response.arrayBuffer());
+}
+
+async function verifyPackageAsset(asset, manifest) {
+  const response = await fetch(asset.browser_download_url, {
+    signal: AbortSignal.timeout(10 * 60_000), cache: 'no-store',
+  });
+  if (!response.ok || !response.body) throw new Error(`release package download failed (${response.status})`);
+  const hash = createHash('sha256');
+  let size = 0;
+  for await (const chunk of response.body) {
+    size += chunk.length;
+    if (size > manifest.size) throw new Error('release package is larger than its signed manifest');
+    hash.update(chunk);
+  }
+  if (size !== manifest.size || hash.digest('hex') !== manifest.sha256) {
+    throw new Error('release package does not match its signed size and SHA-256');
+  }
 }
 
 async function listReleases() {
@@ -88,6 +114,7 @@ async function main() {
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(publicKeyText)) throw new Error('update verification key has an invalid format');
   const publicKey = createPublicKey({ key: Buffer.from(publicKeyText, 'base64'), type: 'spki', format: 'der' });
   if (!verify(null, manifestBytes, publicKey, signature)) throw new Error('release manifest signature verification failed');
+  await verifyPackageAsset(assets.get(manifest.package), manifest);
 
   const channelDirectory = path.resolve('updates');
   fs.mkdirSync(channelDirectory, { recursive: true });
