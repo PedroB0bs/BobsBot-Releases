@@ -1,0 +1,33 @@
+name: Update signed BobsBot channel
+
+on:
+  release:
+    types: [published, released]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bobsbot-signed-release-channel
+  cancel-in-progress: false
+
+jobs:
+  update-channel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the release repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+
+      - name: Test version selection
+        run: node .github/scripts/check-update-channel.mjs
+
+      - name: Select and verify the newest published release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_API_URL: ${{ github.api_url }}
+        run: node .github/scripts/update-release-channel.mjs
