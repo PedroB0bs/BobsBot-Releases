@@ -24,6 +24,17 @@ const manifest = {
   size: 10000,
   sha256: 'a'.repeat(64),
 };
-assert.equal(validateReleaseManifest({ tag_name: 'v1.0.6' }, manifest), manifest);
+const completeRelease = {
+  tag_name: 'v1.0.6',
+  assets: [
+    { name: 'manifest.json', size: 250 },
+    { name: 'manifest.sig', size: 88 },
+    { name: manifest.package, size: manifest.size, digest: `sha256:${manifest.sha256}` },
+    { name: 'BobsBotNetworkSetup.exe', size: 1000 },
+  ],
+};
+assert.equal(validateReleaseManifest(completeRelease, manifest), manifest);
+assert.throws(() => validateReleaseManifest({ ...completeRelease, assets: completeRelease.assets.slice(0, 3) }, manifest), /missing BobsBotNetworkSetup.exe/);
+assert.throws(() => validateReleaseManifest({ ...completeRelease, assets: completeRelease.assets.map(asset => asset.name === manifest.package ? { ...asset, size: 1 } : asset) }, manifest), /incomplete or mismatched/);
 assert.throws(() => validateReleaseManifest({ tag_name: 'v1.0.7' }, manifest));
 console.log('Update channel selection and manifest checks passed.');
