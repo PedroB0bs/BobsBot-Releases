@@ -133,7 +133,7 @@ async function main() {
   }
 
   const latestStable = selectHighestRelease(releases, { stableOnly: true });
-  if (latestStable) {
+  if (latestStable && latestStable.tag_name !== latest.tag_name) {
     const manifestPath = path.join(channelDirectory, 'manifest.json');
     const signaturePath = path.join(channelDirectory, 'manifest.sig');
     execFileSync('gh', ['release', 'upload', latestStable.tag_name, manifestPath, signaturePath,
